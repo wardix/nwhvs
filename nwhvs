@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+
+import argparse
+import yaml
+import uuid
+import datetime
+import requests
+import sqlite3
+import os
+from requests.auth import HTTPDigestAuth
+
+
+def parse_config(config_file):
+    with open(config_file, 'r') as f:
+        config = yaml.safe_load(f)
+    return config
+
+
+def get_latest_clock(device_name, cursor):
+    sql = 'SELECT MAX(clock) FROM presence WHERE device = ?'
+    cursor.execute(sql, [device_name])
+    fetch_data = cursor.fetchone()
+    return fetch_data[0] if fetch_data[0] else '1970-01-01 07:00:00'
+
+
+def build_request_event_post_data(search_id, per_page, search_position, start_time, end_time):
+    return {
+        "AcsEventCond": {
+            "searchId": f'{search_id}',
+            "maxResults": per_page,
+            "searchResultPosition": search_position,
+            "major": 0,
+            "minor": 0,
+            "startTime": start_time,
+            "endTime": end_time}}
+
+
+def request_event_data(session, url, post_data):
+    try:
+        response = session.post(url, json=post_data)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f'An error occured during the request {e}')
+        return None
+
+    return response
+
+
+def request_picture_data(session, url):
+    try:
+        response = session.get(url)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f'An error occurred during the request: {e}')
+        return None
+
+    return response
+
+
+def save_presence_data(cursor, data):
+    sql = 'REPLACE INTO presence VALUES (?, ?, ?, ?)'
+    try:
+        cursor.execute(sql, data)
+    except sqlite3.Error as e:
+        print(f'An error occurred during database operation: {e}')
+
+
+def save_picture(directory, file, content):
+    if not os.path.isdir(directory):
+        os.makedirs(directory)
+    file_path = os.path.join(directory, file)
+
+    try:
+        with open(file_path, 'wb') as f:
+            f.write(content)
+    except IOError as e:
+        print(f'An error occurred while writing to file: {e}')
+
+
+def scrape_device(device, backward_start, timezone_offset, cursor, store_directory):
+    path = '/ISAPI/AccessControl/AcsEvent?format=json'
+    url = device['url'][:-1] + path if device['url'].endswith('/') else device['url'] + path
+    search_id = uuid.uuid4()
+    now = datetime.datetime.now()
+    end_time = now.strftime('%Y-%m-%dT%H:%M:%S') + timezone_offset
+    start = now - datetime.timedelta(seconds=backward_start)
+    start_time = start.strftime('%Y-%m-%dT%H:%M:%S') + timezone_offset
+
+    session = requests.Session()
+    session.auth = HTTPDigestAuth(device['username'], device['password'])
+
+    latest_clock = get_latest_clock(device['name'], cursor)
+
+    per_page = 20
+    search_position = 0
+    while True:
+        post_data = build_request_event_post_data(search_id, per_page, search_position, start_time, end_time)
+        event_response = request_event_data(session, url, post_data)
+        if event_response is None or not event_response.ok:
+            break
+
+        event_data = event_response.json()
+
+        total_event = event_data['AcsEvent']['totalMatches']
+        if total_event < 1:
+            break
+
+        num_match = event_data['AcsEvent']['numOfMatches']
+
+
+        for event in event_data['AcsEvent']['InfoList']:
+            if event['currentVerifyMode'] == 'invalid':
+                continue
+            clock = datetime.datetime.strptime(event['time'], '%Y-%m-%dT%H:%M:%S%z')
+            clock_time = clock.strftime('%Y-%m-%d %H:%M:%S')
+            if (clock_time > latest_clock):
+                employee_name = event['name']
+                employee_id = event['employeeNoString']
+                save_presence_data(cursor, [device['name'], employee_id, employee_name, clock_time])
+
+                picture_response = request_picture_data(session, event['pictureURL'])
+                if picture_response is None or not picture_response.ok:
+                    continue
+                directory = os.path.join(store_directory, clock.strftime('%Y%m%d'))
+                file = clock.strftime('%Y%m%d-%H%M%S') + '-' + employee_id + '.jpg'
+                save_picture(directory, file, picture_response.content)
+
+        if total_event <= (search_position + num_match):
+            break
+        search_position += per_page
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Nusawork Hikvision presence scraper')
+    parser.add_argument('--config', required=True, help='Config file')
+
+    args = parser.parse_args()
+    config_file = args.config
+    config = parse_config(config_file)
+
+    sql_conn = sqlite3.connect(config['db_file'])
+    cursor = sql_conn.cursor()
+
+    for device in config['device']:
+        scrape_device(device, config['backward_start'], config['timezone_offset'], cursor, config['store_directory'])
+
+    sql_conn.commit()
+    sql_conn.close()
+
+
+if __name__ == '__main__':
+    main()

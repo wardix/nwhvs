@@ -1,0 +1,20 @@
+---
+db_file: /var/lib/nwhvs/presence.sqlite
+
+store_directory: /var/lib/nwhvs
+
+timezone_offset: +07:00
+
+backward_start: 3600
+
+device:
+  - name: back-door
+    url: http://192.168.1.3/
+    username: admin
+    password: admin
+  
+  - name: front-door
+    url: http://192.168.1.4/
+    username: admin
+    password: admin
+...
