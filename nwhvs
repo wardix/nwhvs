@@ -5,7 +5,6 @@ import yaml
 import uuid
 import datetime
 import requests
-import sqlite3
 import os
 from requests.auth import HTTPDigestAuth
 
@@ -14,13 +13,6 @@ def parse_config(config_file):
     with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
     return config
-
-
-def get_latest_clock(device_name, cursor):
-    sql = 'SELECT MAX(clock) FROM presence WHERE device = ?'
-    cursor.execute(sql, [device_name])
-    fetch_data = cursor.fetchone()
-    return fetch_data[0] if fetch_data[0] else '1970-01-01 07:00:00'
 
 
 def build_request_event_post_data(search_id, per_page, search_position, start_time, end_time):
@@ -71,14 +63,6 @@ def request_picture_data(session, url):
     return response
 
 
-def save_presence_data(cursor, data):
-    sql = 'REPLACE INTO presence VALUES (?, ?, ?, ?)'
-    try:
-        cursor.execute(sql, data)
-    except sqlite3.Error as e:
-        print(f'An error occurred during database operation: {e}')
-
-
 def save_picture(directory, file, content):
     if not os.path.isdir(directory):
         os.makedirs(directory)
@@ -91,7 +75,7 @@ def save_picture(directory, file, content):
         print(f'An error occurred while writing to file: {e}')
 
 
-def scrape_device(device, period, timezone_offset, cursor, store_directory):
+def scrape_device(device, period, timezone_offset, store_directory):
     path = '/ISAPI/AccessControl/AcsEvent?format=json'
     url = device['url'][:-1] + path if device['url'].endswith('/') else device['url'] + path
     search_id = uuid.uuid4()
@@ -102,8 +86,6 @@ def scrape_device(device, period, timezone_offset, cursor, store_directory):
 
     session = requests.Session()
     session.auth = HTTPDigestAuth(device['username'], device['password'])
-
-    latest_clock = get_latest_clock(device['name'], cursor)
 
     per_page = 20
     search_position = 0
@@ -125,30 +107,26 @@ def scrape_device(device, period, timezone_offset, cursor, store_directory):
             if event['currentVerifyMode'] == 'invalid':
                 continue
             clock = datetime.datetime.strptime(event['time'], '%Y-%m-%dT%H:%M:%S%z')
-            clock_time = clock.strftime('%Y-%m-%d %H:%M:%S')
-            if (clock_time > latest_clock):
-                # authentication failed
-                if 'name' not in event:
-                    continue
-                employee_name = event['name']
-                employee_id = event['employeeNoString']
-                save_presence_data(cursor, [device['name'], employee_id, employee_name, clock_time])
+            # authentication failed
+            if 'name' not in event:
+                continue
+            employee_id = event['employeeNoString']
 
-                # not face authentication
-                if 'pictureURL' not in event:
-                    continue
+            # not face authentication
+            if 'pictureURL' not in event:
+                continue
 
-                picture_directory = generate_picture_directory(store_directory, clock)
-                picture_filename = generate_picture_filename(clock, employee_id, device['name'])
+            picture_directory = generate_picture_directory(store_directory, clock)
+            picture_filename = generate_picture_filename(clock, employee_id, device['name'])
 
-                if os.path.exists(
-                        os.path.join(picture_directory, picture_filename)):
-                    continue
+            if os.path.exists(
+                    os.path.join(picture_directory, picture_filename)):
+                continue
 
-                picture_response = request_picture_data(session, event['pictureURL'])
-                if picture_response is None or not picture_response.ok:
-                    continue
-                save_picture(picture_directory, picture_filename, picture_response.content)
+            picture_response = request_picture_data(session, event['pictureURL'])
+            if picture_response is None or not picture_response.ok:
+                continue
+            save_picture(picture_directory, picture_filename, picture_response.content)
 
         if total_event <= (search_position + num_match):
             break
@@ -167,14 +145,8 @@ def main():
     config_file = args.config
     config = parse_config(config_file)
 
-    sql_conn = sqlite3.connect(config['db_file'])
-    cursor = sql_conn.cursor()
-
     for device in config['device']:
-        scrape_device(device, config['period'], config['timezone_offset'], cursor, config['store_directory'])
-
-    sql_conn.commit()
-    sql_conn.close()
+        scrape_device(device, config['period'], config['timezone_offset'], config['store_directory'])
 
 
 if __name__ == '__main__':

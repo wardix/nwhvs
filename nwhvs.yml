@@ -1,6 +1,4 @@
 ---
-db_file: /var/lib/nwhvs/presence.sqlite
-
 store_directory: /var/lib/nwhvs
 
 timezone_offset: +07:00
