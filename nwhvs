@@ -35,6 +35,20 @@ def build_request_event_post_data(search_id, per_page, search_position, start_ti
             "endTime": end_time}}
 
 
+def generate_picture_directory(base_directory, clock):
+    return os.path.join(base_directory, clock.strftime('%Y%m%d'))
+
+
+def generate_picture_filename(clock, employee_id, device_name):
+    return (
+        clock.strftime('%H%M%S') +
+        '-' +
+        employee_id +
+        '-' +
+        device_name +
+        '.jpg')
+
+
 def request_event_data(session, url, post_data):
     try:
         response = session.post(url, json=post_data)
@@ -123,12 +137,18 @@ def scrape_device(device, period, timezone_offset, cursor, store_directory):
                 # not face authentication
                 if 'pictureURL' not in event:
                     continue
+
+                picture_directory = generate_picture_directory(store_directory, clock)
+                picture_filename = generate_picture_filename(clock, employee_id, device['name'])
+
+                if os.path.exists(
+                        os.path.join(picture_directory, picture_filename)):
+                    continue
+
                 picture_response = request_picture_data(session, event['pictureURL'])
                 if picture_response is None or not picture_response.ok:
                     continue
-                directory = os.path.join(store_directory, clock.strftime('%Y%m%d'))
-                file = clock.strftime('%Y%m%d-%H%M%S') + '-' + employee_id + '.jpg'
-                save_picture(directory, file, picture_response.content)
+                save_picture(picture_directory, picture_filename, picture_response.content)
 
         if total_event <= (search_position + num_match):
             break
