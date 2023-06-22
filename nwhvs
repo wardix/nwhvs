@@ -107,7 +107,6 @@ def scrape_device(device, backward_start, timezone_offset, cursor, store_directo
 
         num_match = event_data['AcsEvent']['numOfMatches']
 
-
         for event in event_data['AcsEvent']['InfoList']:
             if event['currentVerifyMode'] == 'invalid':
                 continue
