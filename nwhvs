@@ -114,13 +114,16 @@ def scrape_device(device, backward_start, timezone_offset, cursor, store_directo
             clock = datetime.datetime.strptime(event['time'], '%Y-%m-%dT%H:%M:%S%z')
             clock_time = clock.strftime('%Y-%m-%d %H:%M:%S')
             if (clock_time > latest_clock):
-                # face authentication failed
+                # authentication failed
                 if 'name' not in event:
                     continue
                 employee_name = event['name']
                 employee_id = event['employeeNoString']
                 save_presence_data(cursor, [device['name'], employee_id, employee_name, clock_time])
 
+                # not face authentication
+                if 'pictureURL' not in event:
+                    continue
                 picture_response = request_picture_data(session, event['pictureURL'])
                 if picture_response is None or not picture_response.ok:
                     continue
