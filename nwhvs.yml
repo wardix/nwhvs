@@ -5,7 +5,7 @@ store_directory: /var/lib/nwhvs
 
 timezone_offset: +07:00
 
-backward_start: 3600
+period: 3600
 
 device:
   - name: back-door
