@@ -134,6 +134,10 @@ def scrape_device(device, backward_start, timezone_offset, cursor, store_directo
         if total_event <= (search_position + num_match):
             break
         search_position += per_page
+        # renew session every 100 item fetched
+        if (search_position % 100) == 0:
+            session = requests.Session()
+            session.auth = HTTPDigestAuth(device['username'], device['password'])
 
 
 def main():
