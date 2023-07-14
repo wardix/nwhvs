@@ -73,7 +73,7 @@ def save_picture(directory, file, content):
         print(f"An error occurred while writing to file: {e}")
 
 
-def scrape_device(device, period, timezone_offset, store_directory):
+def scrape_device(device, start_time, end_time, store_directory):
     path = "/ISAPI/AccessControl/AcsEvent?format=json"
     url = (
         device["url"][:-1] + path
@@ -81,10 +81,6 @@ def scrape_device(device, period, timezone_offset, store_directory):
         else device["url"] + path
     )
     search_id = uuid.uuid4()
-    now = datetime.datetime.now()
-    end_time = now.strftime("%Y-%m-%dT%H:%M:%S") + timezone_offset
-    start = now - datetime.timedelta(seconds=period)
-    start_time = start.strftime("%Y-%m-%dT%H:%M:%S") + timezone_offset
 
     session = requests.Session()
     session.auth = HTTPDigestAuth(device["username"], device["password"])
@@ -145,18 +141,34 @@ def scrape_device(device, period, timezone_offset, store_directory):
 def main():
     parser = argparse.ArgumentParser(description="Nusawork Hikvision presence scraper")
     parser.add_argument("--config", required=True, help="Config file")
+    parser.add_argument(
+        "--start", metavar="<datetime>", help="start time that will be scraped"
+    )
+    parser.add_argument(
+        "--period",
+        metavar="<period seconds>",
+        help="data period that will be scraped",
+    )
 
     args = parser.parse_args()
     config_file = args.config
     config = parse_config(config_file)
 
+    period = int(args.period if args.period else config["period"])
+    if args.start:
+        start = datetime.datetime.strptime(args.start, "%Y-%m-%d %H:%M:%S")
+        start_time = start.strftime("%Y-%m-%dT%H:%M:%S") + config["timezone_offset"]
+        end = start + datetime.timedelta(seconds=period)
+        end_time = end.strftime("%Y-%m-%dT%H:%M:%S") + config["timezone_offset"]
+    else:
+        now = datetime.datetime.now()
+        end_time = now.strftime("%Y-%m-%dT%H:%M:%S") + config["timezone_offset"]
+        start = now - datetime.timedelta(seconds=period)
+        start_time = start.strftime("%Y-%m-%dT%H:%M:%S") + config["timezone_offset"]
+
+    print(start_time, end_time)
     for device in config["device"]:
-        scrape_device(
-            device,
-            config["period"],
-            config["timezone_offset"],
-            config["store_directory"],
-        )
+        scrape_device(device, start_time, end_time, config["store_directory"])
 
 
 if __name__ == "__main__":
