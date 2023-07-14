@@ -166,7 +166,6 @@ def main():
         start = now - datetime.timedelta(seconds=period)
         start_time = start.strftime("%Y-%m-%dT%H:%M:%S") + config["timezone_offset"]
 
-    print(start_time, end_time)
     for device in config["device"]:
         scrape_device(device, start_time, end_time, config["store_directory"])
 
