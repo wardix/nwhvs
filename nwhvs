@@ -6,6 +6,7 @@ import uuid
 import datetime
 import requests
 import os
+import shutil
 from requests.auth import HTTPDigestAuth
 
 
@@ -73,7 +74,7 @@ def save_picture(directory, file, content):
         print(f"An error occurred while writing to file ({file_path}): {e}")
 
 
-def scrape_device(device, start_time, end_time, store_directory):
+def scrape_device(device, start_time, end_time, store_directory, finger_print_image):
     path = "/ISAPI/AccessControl/AcsEvent?format=json"
     url = (
         device["url"][:-1] + path
@@ -112,16 +113,17 @@ def scrape_device(device, start_time, end_time, store_directory):
                 continue
             employee_id = event["employeeNoString"]
 
-            # not face authentication
-            if "pictureURL" not in event:
-                continue
-
             picture_directory = generate_picture_directory(store_directory, clock)
             picture_filename = generate_picture_filename(
                 clock, employee_id, device["name"]
             )
 
             if os.path.exists(os.path.join(picture_directory, picture_filename)):
+                continue
+
+            # not face authentication
+            if not ("pictureURL" in event):
+                shutil.copy(finger_print_image, os.path.join(picture_directory, picture_filename))
                 continue
 
             picture_response = request_picture_data(session, event["pictureURL"])
@@ -167,7 +169,7 @@ def main():
         start_time = start.strftime("%Y-%m-%dT%H:%M:%S") + config["timezone_offset"]
 
     for device in config["device"]:
-        scrape_device(device, start_time, end_time, config["store_directory"])
+        scrape_device(device, start_time, end_time, config["store_directory"], config["finger_print_image"])
 
 
 if __name__ == "__main__":

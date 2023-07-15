@@ -1,6 +1,8 @@
 ---
 store_directory: /var/lib/nwhvs
 
+finger_print_image: /var/lib/nwhvs/finger-print.jpg
+
 timezone_offset: +07:00
 
 period: 3600
