@@ -44,7 +44,7 @@ def request_event_data(session, url, post_data):
         response = session.post(url, json=post_data)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
-        print(f"An error occured during the request {e}")
+        print(f"An error occured during request ({url}): {e}")
         return None
 
     return response
@@ -55,7 +55,7 @@ def request_picture_data(session, url):
         response = session.get(url)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
-        print(f"An error occurred during the request: {e}")
+        print(f"An error occurred during request ({url}): {e}")
         return None
 
     return response
@@ -70,7 +70,7 @@ def save_picture(directory, file, content):
         with open(file_path, "wb") as f:
             f.write(content)
     except IOError as e:
-        print(f"An error occurred while writing to file: {e}")
+        print(f"An error occurred while writing to file ({file_path}): {e}")
 
 
 def scrape_device(device, start_time, end_time, store_directory):
