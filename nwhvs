@@ -52,7 +52,9 @@ def save_picture(directory, file, content):
         print(f"An error occurred while writing to file ({file_path}): {e}")
 
 
-def scrape_device(device, start_time, end_time, store_directory, finger_print_image):
+def scrape_device(
+    device, start_time, end_time, store_directory, finger_print_image, not_found_image
+):
     path = "/ISAPI/AccessControl/AcsEvent?format=json"
     url = (
         device["url"][:-1] + path
@@ -148,6 +150,12 @@ def scrape_device(device, start_time, end_time, store_directory, finger_print_im
                 elif picture_response.status_code == 401:
                     reset_session_required = True
                     break
+                elif picture_response.status_code == 404:
+                    shutil.copy(
+                        not_found_image,
+                        os.path.join(picture_directory, picture_filename),
+                    )
+                    continue
                 else:
                     picture_response.raise_for_status()
             except requests.exceptions.RequestException as e:
@@ -193,6 +201,7 @@ def main():
             end_time,
             config["store_directory"],
             config["finger_print_image"],
+            config["not_found_image"],
         )
 
 
