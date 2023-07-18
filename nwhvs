@@ -80,7 +80,7 @@ def scrape_device(device, start_time, end_time, store_directory, finger_print_im
             event_response = session.post(url, json=post_data)
             if event_response.status_code == 401:
                 if auth_retry_count >= max_auth_retry:
-                    print(f"An error occured during request ({url}): 401")
+                    print(f"An error occurred during request ({url}): 401")
                     break
                 reset_session_required = True
                 continue
@@ -91,7 +91,7 @@ def scrape_device(device, start_time, end_time, store_directory, finger_print_im
                 event_response.raise_for_status()
 
         except requests.exceptions.RequestException as e:
-            print(f"An error occured during request ({url}): {e}")
+            print(f"An error occurred during request ({url}): {e}")
             break
 
         event_data = event_response.json()
@@ -140,7 +140,7 @@ def scrape_device(device, start_time, end_time, store_directory, finger_print_im
                 else:
                     picture_response.raise_for_status()
             except requests.exceptions.RequestException as e:
-                print(f"An error occured during request ({event['pictureURL']}): {e}")
+                print(f"An error occurred during request ({event['pictureURL']}): {e}")
 
         if total_event <= (search_position + num_match):
             break
