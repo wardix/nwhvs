@@ -10,6 +10,11 @@ import shutil
 from requests.auth import HTTPDigestAuth
 
 
+DEFAULT_MAX_AUTH_RETRY = 10
+DEFAULT_MAX_CONNECT_RETRY = 3
+DEFAULT_ITEM_PER_PAGE = 20
+
+
 def parse_config(config_file):
     with open(config_file, "r") as f:
         config = yaml.safe_load(f)
@@ -62,12 +67,12 @@ def scrape_device(
         else device["url"] + path
     )
 
-    per_page = 20
+    per_page = DEFAULT_ITEM_PER_PAGE
     search_position = 0
     reset_session_required = True
-    max_auth_retry = 10
+    max_auth_retry = DEFAULT_MAX_AUTH_RETRY
     auth_retry_count = 0
-    max_connect_retry = 3
+    max_connect_retry = DEFAULT_MAX_CONNECT_RETRY
     connect_retry_count = 1
     while True:
         search_id = uuid.uuid4()
