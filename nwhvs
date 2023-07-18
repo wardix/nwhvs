@@ -121,7 +121,10 @@ def scrape_device(device, start_time, end_time, store_directory, finger_print_im
 
             # not face authentication
             if not ("pictureURL" in event):
-                shutil.copy(finger_print_image, os.path.join(picture_directory, picture_filename))
+                shutil.copy(
+                    finger_print_image,
+                    os.path.join(picture_directory, picture_filename),
+                )
                 continue
 
             # request picture data
@@ -173,7 +176,13 @@ def main():
         start_time = start.strftime("%Y-%m-%dT%H:%M:%S") + config["timezone_offset"]
 
     for device in config["device"]:
-        scrape_device(device, start_time, end_time, config["store_directory"], config["finger_print_image"])
+        scrape_device(
+            device,
+            start_time,
+            end_time,
+            config["store_directory"],
+            config["finger_print_image"],
+        )
 
 
 if __name__ == "__main__":
