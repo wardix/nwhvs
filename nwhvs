@@ -59,7 +59,6 @@ def scrape_device(device, start_time, end_time, store_directory, finger_print_im
         if device["url"].endswith("/")
         else device["url"] + path
     )
-    search_id = uuid.uuid4()
 
     per_page = 20
     search_position = 0
@@ -67,6 +66,7 @@ def scrape_device(device, start_time, end_time, store_directory, finger_print_im
     max_auth_retry = 10
     auth_retry_count = 0
     while True:
+        search_id = uuid.uuid4()
         post_data = build_request_event_post_data(
             search_id, per_page, search_position, start_time, end_time
         )
