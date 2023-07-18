@@ -65,6 +65,8 @@ def scrape_device(device, start_time, end_time, store_directory, finger_print_im
     reset_session_required = True
     max_auth_retry = 10
     auth_retry_count = 0
+    max_connect_retry = 3
+    connect_retry_count = 1
     while True:
         search_id = uuid.uuid4()
         post_data = build_request_event_post_data(
@@ -87,8 +89,17 @@ def scrape_device(device, start_time, end_time, store_directory, finger_print_im
             if event_response.ok:
                 if auth_retry_count > 1:
                     auth_retry_count = 1
+                if connect_retry_count > 1:
+                    connect_retry_count = 1
             else:
                 event_response.raise_for_status()
+
+        except requests.exceptions.ConnectionError as e:
+            if connect_retry_count >= max_connect_retry:
+                print(f"An error occurred during request ({url}): {e}")
+                break
+            connect_retry_count = connect_retry_count + 1
+            continue
 
         except requests.exceptions.RequestException as e:
             print(f"An error occurred during request ({url}): {e}")
