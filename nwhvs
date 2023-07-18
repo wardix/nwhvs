@@ -40,28 +40,6 @@ def generate_picture_filename(clock, employee_id, device_name):
     return clock.strftime("%H%M%S") + "-" + employee_id + "-" + device_name + ".jpg"
 
 
-def request_event_data(session, url, post_data):
-    try:
-        response = session.post(url, json=post_data)
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        print(f"An error occured during request ({url}): {e}")
-        return None
-
-    return response
-
-
-def request_picture_data(session, url):
-    try:
-        response = session.get(url)
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred during request ({url}): {e}")
-        return None
-
-    return response
-
-
 def save_picture(directory, file, content):
     if not os.path.isdir(directory):
         os.makedirs(directory)
@@ -83,17 +61,37 @@ def scrape_device(device, start_time, end_time, store_directory, finger_print_im
     )
     search_id = uuid.uuid4()
 
-    session = requests.Session()
-    session.auth = HTTPDigestAuth(device["username"], device["password"])
-
     per_page = 20
     search_position = 0
+    reset_session_required = True
+    max_auth_retry = 10
+    auth_retry_count = 0
     while True:
         post_data = build_request_event_post_data(
             search_id, per_page, search_position, start_time, end_time
         )
-        event_response = request_event_data(session, url, post_data)
-        if event_response is None or not event_response.ok:
+        if reset_session_required:
+            session = requests.Session()
+            session.auth = HTTPDigestAuth(device["username"], device["password"])
+            reset_session_required = False
+            auth_retry_count = auth_retry_count + 1
+
+        try:
+            event_response = session.post(url, json=post_data)
+            if event_response.status_code == 401:
+                if auth_retry_count >= max_auth_retry:
+                    print(f"An error occured during request ({url}): 401")
+                    break
+                reset_session_required = True
+                continue
+            if event_response.ok:
+                if auth_retry_count > 1:
+                    auth_retry_count = 1
+            else:
+                event_response.raise_for_status()
+
+        except requests.exceptions.RequestException as e:
+            print(f"An error occured during request ({url}): {e}")
             break
 
         event_data = event_response.json()
@@ -126,18 +124,24 @@ def scrape_device(device, start_time, end_time, store_directory, finger_print_im
                 shutil.copy(finger_print_image, os.path.join(picture_directory, picture_filename))
                 continue
 
-            picture_response = request_picture_data(session, event["pictureURL"])
-            if picture_response is None or not picture_response.ok:
-                continue
-            save_picture(picture_directory, picture_filename, picture_response.content)
+            # request picture data
+            try:
+                picture_response = session.get(event["pictureURL"])
+                if picture_response.ok:
+                    save_picture(
+                        picture_directory, picture_filename, picture_response.content
+                    )
+                elif picture_response.status_code == 401:
+                    reset_session_required = True
+                    break
+                else:
+                    picture_response.raise_for_status()
+            except requests.exceptions.RequestException as e:
+                print(f"An error occured during request ({event['pictureURL']}): {e}")
 
         if total_event <= (search_position + num_match):
             break
         search_position += per_page
-        # renew session every 100 item fetched
-        if (search_position % 100) == 0:
-            session = requests.Session()
-            session.auth = HTTPDigestAuth(device["username"], device["password"])
 
 
 def main():
