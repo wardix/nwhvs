@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+
+import argparse
+import yaml
+import uuid
+import datetime
+import requests
+import os
+import shutil
+from requests.auth import HTTPDigestAuth
+from argparse import ArgumentParser  # Import tambahan
+
+
+
+DEFAULT_MAX_AUTH_RETRY = 10
+DEFAULT_MAX_CONNECT_RETRY = 3
+DEFAULT_ITEM_PER_PAGE = 20
+
+
+def parse_config(config_file):
+    with open(config_file, "r") as f:
+        config = yaml.safe_load(f)
+    return config
+
+
+def build_request_event_post_data(
+    search_id, per_page, search_position, start_time, end_time
+):
+    return {
+        "AcsEventCond": {
+            "searchId": f"{search_id}",
+            "maxResults": per_page,
+            "searchResultPosition": search_position,
+            "major": 0,
+            "minor": 0,
+            "startTime": start_time,
+            "endTime": end_time,
+        }
+    }
+
+
+def generate_picture_directory(base_directory, clock):
+    return os.path.join(base_directory, clock.strftime("%Y%m%d"))
+
+
+def generate_picture_filename(clock, employee_id, device_name):
+    return clock.strftime("%H%M%S") + "-" + employee_id + "-" + device_name + ".jpg"
+
+
+def save_picture(directory, file, content):
+    if not os.path.isdir(directory):
+        os.makedirs(directory)
+    file_path = os.path.join(directory, file)
+
+    try:
+        with open(file_path, "wb") as f:
+            f.write(content)
+    except IOError as e:
+        print(f"An error occurred while writing to file ({file_path}): {e}")
+
+
+def scrape_device(
+    device, start_time, end_time, store_directory, finger_print_image, not_found_image
+):
+    path = "/ISAPI/AccessControl/AcsEvent?format=json"
+    url = (
+        device["url"][:-1] + path
+        if device["url"].endswith("/")
+        else device["url"] + path
+    )
+
+    per_page = DEFAULT_ITEM_PER_PAGE
+    search_position = 0
+    reset_session_required = True
+    max_auth_retry = DEFAULT_MAX_AUTH_RETRY
+    auth_retry_count = 0
+    max_connect_retry = DEFAULT_MAX_CONNECT_RETRY
+    connect_retry_count = 1
+    while True:
+        search_id = uuid.uuid4()
+        post_data = build_request_event_post_data(
+            search_id, per_page, search_position, start_time, end_time
+        )
+        if reset_session_required:
+            session = requests.Session()
+            session.auth = HTTPDigestAuth(device["username"], device["password"])
+            reset_session_required = False
+            auth_retry_count = auth_retry_count + 1
+
+        try:
+            event_response = session.post(url, json=post_data)
+            if event_response.status_code == 401:
+                if auth_retry_count >= max_auth_retry:
+                    print(f"An error occurred during request ({url}): 401")
+                    break
+                reset_session_required = True
+                continue
+            if event_response.ok:
+                if auth_retry_count > 1:
+                    auth_retry_count = 1
+                if connect_retry_count > 1:
+                    connect_retry_count = 1
+            else:
+                event_response.raise_for_status()
+
+        except requests.exceptions.ConnectionError as e:
+            if connect_retry_count >= max_connect_retry:
+                print(f"An error occurred during request ({url}): {e}")
+                break
+            connect_retry_count = connect_retry_count + 1
+            continue
+
+        except requests.exceptions.RequestException as e:
+            print(f"An error occurred during request ({url}): {e}")
+            break
+
+        event_data = event_response.json()
+
+        total_event = event_data["AcsEvent"]["totalMatches"]
+        if total_event < 1:
+            break
+
+        num_match = event_data["AcsEvent"]["numOfMatches"]
+
+        for event in event_data["AcsEvent"]["InfoList"]:
+            if event["currentVerifyMode"] == "invalid":
+                continue
+            clock = datetime.datetime.strptime(event["time"], "%Y-%m-%dT%H:%M:%S%z")
+            # authentication failed
+            if "name" not in event:
+                continue
+            employee_id = event["employeeNoString"]
+
+            picture_directory = generate_picture_directory(store_directory, clock)
+            picture_filename = generate_picture_filename(
+                clock, employee_id, device["name"]
+            )
+
+            if os.path.exists(os.path.join(picture_directory, picture_filename)):
+                continue
+
+            # not face authentication
+            if not ("pictureURL" in event):
+                shutil.copy(
+                    finger_print_image,
+                    os.path.join(picture_directory, picture_filename),
+                )
+                continue
+
+            # request picture data
+            try:
+                picture_response = session.get(event["pictureURL"])
+                if picture_response.ok:
+                    save_picture(
+                        picture_directory, picture_filename, picture_response.content
+                    )
+                elif picture_response.status_code == 401:
+                    reset_session_required = True
+                    break
+                elif picture_response.status_code == 404:
+                    shutil.copy(
+                        not_found_image,
+                        os.path.join(picture_directory, picture_filename),
+                    )
+                    continue
+                else:
+                    picture_response.raise_for_status()
+            except requests.exceptions.RequestException as e:
+                print(f"An error occurred during request ({event['pictureURL']}): {e}")
+
+        if total_event <= (search_position + num_match):
+            break
+        search_position += per_page
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Nusawork Hikvision presence scraper")
+    parser.add_argument("--config", required=True, help="Config file")
+    parser.add_argument(
+        "--start", metavar="<datetime>", help="start time that will be scraped"
+    )
+    parser.add_argument(
+        "--period",
+        metavar="<period seconds>",
+        help="data period that will be scraped",
+    )
+    parser.add_argument("--device", metavar="<device name>", help="specific device to scrape, example lantai19")
+
+
+    args = parser.parse_args()
+    config_file = args.config
+    config = parse_config(config_file)
+
+    period = int(args.period if args.period else config["period"])
+    if args.start:
+        start = datetime.datetime.strptime(args.start, "%Y-%m-%d %H:%M:%S")
+        start_time = start.strftime("%Y-%m-%dT%H:%M:%S") + config["timezone_offset"]
+        end = start + datetime.timedelta(seconds=period)
+        end_time = end.strftime("%Y-%m-%dT%H:%M:%S") + config["timezone_offset"]
+    else:
+        now = datetime.datetime.now()
+        end_time = now.strftime("%Y-%m-%dT%H:%M:%S") + config["timezone_offset"]
+        start = now - datetime.timedelta(seconds=period)
+        start_time = start.strftime("%Y-%m-%dT%H:%M:%S") + config["timezone_offset"]
+
+    selected_device = args.device
+
+    for device in config["device"]:
+        if selected_device is None or device["name"] == selected_device:
+            scrape_device(
+                device,
+                start_time,
+                end_time,
+                config["store_directory"],
+                config["finger_print_image"],
+                config["not_found_image"],
+            )
+            
+
+
+if __name__ == "__main__":
+    main()
+
